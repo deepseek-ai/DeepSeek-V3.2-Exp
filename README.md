@@ -93,8 +93,9 @@ export CONFIG=config_671B_v3.2.json
 torchrun --nproc-per-node ${MP} generate.py --ckpt-path ${SAVE_PATH} --config ${CONFIG} --interactive
 ```
 
+## Run with vLLM
 
-
+vLLM supports day-0 support of DeepSeek-V3.2-Exp. See the [recipes](https://docs.vllm.ai/projects/recipes/en/latest/DeepSeek/DeepSeek-V3_2-Exp.html) for up-to-date details.
 
 ## License
 
