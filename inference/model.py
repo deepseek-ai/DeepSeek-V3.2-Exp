@@ -473,7 +473,7 @@ class Indexer(torch.nn.Module):
         index_score = fp8_index(q_fp8.contiguous(), weights, self.k_cache[:bsz, :end_pos].contiguous(), self.k_scale_cache[:bsz, :end_pos].contiguous())
         if mask is not None:
             index_score += mask
-        topk_indices = index_score.topk(min(self.index_topk, end_pos), dim=-1)[1]
+        topk_indices = index_score.topk(min(self.index_topk, end_pos), dim=-1, sorted=False)[1]
         topk_indices_ = topk_indices.clone()
         dist.broadcast(topk_indices_, src=0)
         assert torch.all(topk_indices == topk_indices_), f"{topk_indices=} {topk_indices_=}"
@@ -686,11 +686,11 @@ class Gate(nn.Module):
             if self.bias is None:
                 group_scores = scores.amax(dim=-1)
             else:
-                group_scores = scores.topk(2, dim=-1)[0].sum(dim=-1)
-            indices = group_scores.topk(self.topk_groups, dim=-1)[1]
+                group_scores = scores.topk(2, dim=-1, sorted=False)[0].sum(dim=-1)
+            indices = group_scores.topk(self.topk_groups, dim=-1, sorted=False)[1]
             mask = scores.new_ones(x.size(0), self.n_groups, dtype=bool).scatter_(1, indices, False)
             scores = scores.masked_fill_(mask.unsqueeze(-1), float("-inf")).flatten(1)
-        indices = scores.topk(self.topk, dim=-1)[1]
+        indices = scores.topk(self.topk, dim=-1, sorted=False)[1]
         weights = original_scores.gather(1, indices)
         if self.score_func == "sigmoid":
             weights /= weights.sum(dim=-1, keepdim=True)
