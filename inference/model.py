@@ -8,12 +8,14 @@ from torch import nn
 import torch.nn.functional as F
 import torch.distributed as dist
 
-from kernel import act_quant, fp8_gemm, fp8_index
 
 
 world_size = 1
 rank = 0
 block_size = 128
+use_tl_kernels = True
+if use_tl_kernels:
+    from kernel import act_quant, fp8_gemm, fp8_index
 
 @dataclass
 class ModelArgs:
@@ -159,9 +161,11 @@ def linear(x: torch.Tensor, weight: torch.Tensor, bias: Optional[torch.Tensor] =
 
     if weight.dtype != torch.float8_e4m3fn:
         return F.linear(x, weight)
-    else:
+    elif use_tl_kernels:
         x, scale = act_quant(x, block_size, scale_fmt)
         return fp8_gemm(x, scale, weight, weight.scale)
+    else:
+        return F.linear(x, weight.to(torch.bfloat16))
 
 
 class Linear(nn.Module):
@@ -427,6 +431,19 @@ def rotate_activation(x: torch.Tensor) -> torch.Tensor:
     hidden_size = x.size(-1)
     return hadamard_transform(x, scale=hidden_size ** -0.5)
 
+def torch_index(
+    q: torch.Tensor, # B x T x h x d 
+    k: torch.Tensor, # B x S x d
+    w: torch.Tensor, # B x T x h
+) -> torch.Tensor:
+    B, T, h, S = q.shape[0:3], k.shape[1]
+    I = torch.zeros((B, T, S), dtype=torch.float, device=q.device)
+    for t in range(T):
+        for s in range(S):
+            for j in range(h):
+                qk = (q[:, t, j]*k[:, s]).sum(dim=-1)
+                I[:, t, s] += w[:, t, j] * F.relu(qk)
+    return I
 
 class Indexer(torch.nn.Module):
     def __init__(self, args: ModelArgs):
@@ -445,9 +462,11 @@ class Indexer(torch.nn.Module):
         self.softmax_scale = self.head_dim ** -0.5
         self.scale_fmt = args.scale_fmt
 
-        self.register_buffer("k_cache", torch.zeros(args.max_batch_size, args.max_seq_len, self.head_dim, dtype=torch.float8_e4m3fn), persistent=False)
-        self.register_buffer("k_scale_cache", torch.zeros(args.max_batch_size, args.max_seq_len, self.head_dim // block_size, dtype=torch.float32), persistent=False)
-
+        if use_tl_kernels:
+            self.register_buffer("k_cache", torch.zeros(args.max_batch_size, args.max_seq_len, self.head_dim, dtype=torch.float8_e4m3fn), persistent=False)
+            self.register_buffer("k_scale_cache", torch.zeros(args.max_batch_size, args.max_seq_len, self.head_dim // block_size, dtype=torch.float32), persistent=False)
+        else:
+            self.register_buffer("k_cache16", torch.zeros(args.max_batch_size, args.max_seq_len, self.head_dim, dtype=torch.bfloat16), persistent=False)
 
     def forward(self, x: torch.Tensor, qr: torch.Tensor, start_pos: int, freqs_cis: torch.Tensor, mask: Optional[torch.Tensor]):
         bsz, seqlen, _ = x.size()
@@ -464,18 +483,24 @@ class Indexer(torch.nn.Module):
         k = torch.cat([k_pe, k_nope], dim=-1)
         q = rotate_activation(q)
         k = rotate_activation(k)
-        q_fp8, q_scale = act_quant(q, block_size, self.scale_fmt)
-        k_fp8, k_scale = act_quant(k, block_size, self.scale_fmt)
-        self.k_cache[:bsz, start_pos:end_pos] = k_fp8
-        self.k_scale_cache[:bsz, start_pos:end_pos] = k_scale
-        weights = self.weights_proj(x) * self.n_heads ** -0.5
-        weights = weights.unsqueeze(-1) * q_scale * self.softmax_scale
-        index_score = fp8_index(q_fp8.contiguous(), weights, self.k_cache[:bsz, :end_pos].contiguous(), self.k_scale_cache[:bsz, :end_pos].contiguous())
+        if use_tl_kernels:
+            q_fp8, q_scale = act_quant(q, block_size, self.scale_fmt)
+            k_fp8, k_scale = act_quant(k, block_size, self.scale_fmt)
+            self.k_cache[:bsz, start_pos:end_pos] = k_fp8
+            self.k_scale_cache[:bsz, start_pos:end_pos] = k_scale
+            weights = self.weights_proj(x) * self.n_heads ** -0.5
+            weights = weights.unsqueeze(-1) * q_scale * self.softmax_scale
+            index_score = fp8_index(q_fp8.contiguous(), weights, self.k_cache[:bsz, :end_pos].contiguous(), self.k_scale_cache[:bsz, :end_pos].contiguous())
+        else:
+            w = self.weights_proj(x) * (self.n_heads ** -0.5) * self.softmax_scale
+            self.k_cache16[:bsz, start_pos:end_pos] = k
+            index_score = torch_index(q, self.k_cache16[:bsz, :end_pos], w)
         if mask is not None:
             index_score += mask
         topk_indices = index_score.topk(min(self.index_topk, end_pos), dim=-1)[1]
         topk_indices_ = topk_indices.clone()
-        dist.broadcast(topk_indices_, src=0)
+        if world_size > 1:
+            dist.broadcast(topk_indices_, src=0)
         assert torch.all(topk_indices == topk_indices_), f"{topk_indices=} {topk_indices_=}"
         return topk_indices
 
