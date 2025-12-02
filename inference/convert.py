@@ -33,6 +33,8 @@ mapping = {
     "weights_proj": ("weights_proj", None),
 }
 
+float32_keys = {"head", "weights_proj"}
+
 
 def main(hf_ckpt_path, save_path, n_experts, mp):
     """
@@ -66,6 +68,8 @@ def main(hf_ckpt_path, save_path, n_experts, mp):
                 key = name.split(".")[-2]
                 assert key in mapping, f"Key {key} not found in mapping"
                 new_key, dim = mapping[key]
+                if new_key in float32_keys and param.dtype != torch.float32:
+                    param = param.to(torch.float32)
                 name = name.replace(key, new_key)
                 for i in range(mp):
                     new_param = param
