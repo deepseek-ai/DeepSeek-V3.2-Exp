@@ -1,0 +1,51 @@
+{
+  "comment": "DeepSeek-V3.2-Exp with all train_gpt.py improvements enabled",
+
+  "vocab_size":           129280,
+  "dim":                  7168,
+  "inter_dim":            18432,
+  "moe_inter_dim":        2048,
+  "n_layers":             61,
+  "n_dense_layers":       3,
+  "n_heads":              128,
+  "n_routed_experts":     256,
+  "n_shared_experts":     1,
+  "n_activated_experts":  8,
+  "n_expert_groups":      8,
+  "n_limited_groups":     4,
+  "route_scale":          2.5,
+  "score_func":           "sigmoid",
+  "q_lora_rank":          1536,
+  "kv_lora_rank":         512,
+  "qk_nope_head_dim":     128,
+  "qk_rope_head_dim":     64,
+  "v_head_dim":           128,
+  "original_seq_len":     4096,
+  "rope_theta":           10000.0,
+  "rope_factor":          40.0,
+  "beta_fast":            32,
+  "beta_slow":            1,
+  "mscale":               1.0,
+  "max_seq_len":          16384,
+  "max_batch_size":       8,
+
+  "dtype":                "int6",
+
+  "rope_dims":            16,
+  "ln_scale":             true,
+  "xsa_all_layers":       true,
+  "logit_softcap":        30.0,
+
+  "bigram_vocab_size":    65536,
+  "bigram_dim":           256,
+
+  "smear":                true,
+  "unet_skips":           true,
+
+  "ve_enabled":           true,
+  "ve_dim":               256,
+  "ve_layers":            "58,59,60",
+
+  "qk_gain_init":         1.5,
+  "leaky_relu_mlp":       true
+}
