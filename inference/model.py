@@ -476,7 +476,10 @@ class Indexer(torch.nn.Module):
         self.k_cache[:bsz, start_pos:end_pos] = k_fp8
         self.k_scale_cache[:bsz, start_pos:end_pos] = k_scale
         weights = self.weights_proj(x.float()) * self.n_heads ** -0.5
-        weights = weights.unsqueeze(-1) * q_scale * self.softmax_scale
+        # act_quant appends a (head_dim // block_size) scale axis; for the indexer head_dim == block_size,
+        # so q_scale's trailing dim is 1. Squeeze it so q_s matches the fp8_index kernel contract T.Tensor[(b, m, h)].
+        assert q_scale.size(-1) == 1, f"expected singleton q_scale block dim, got {q_scale.size(-1)}"
+        weights = weights * q_scale.squeeze(-1) * self.softmax_scale
         index_score = fp8_index(q_fp8.contiguous(), weights, self.k_cache[:bsz, :end_pos].contiguous(), self.k_scale_cache[:bsz, :end_pos].contiguous())
         if mask is not None:
             index_score += mask
