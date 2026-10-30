@@ -89,7 +89,7 @@ For **high-performance CUDA kernels**, indexer logit kernels (including paged ve
 ### HuggingFace
 We provide an updated inference demo code in the [inference](https://huggingface.co/deepseek-ai/DeepSeek-V3.2-Exp/tree/main/inference) folder to help the community quickly get started with our model and understand its architectural details.
 
-First convert huggingface model weights to the the format required by our inference demo. Set `MP` to match your available GPU count:
+First convert Hugging Face model weights to the format required by our inference demo. Set `MP` to match your available GPU count:
 ```bash
 cd inference
 export EXPERTS=256
@@ -143,4 +143,4 @@ This repository and the model weights are licensed under the [MIT License](LICEN
 
 ## Contact
 
-If you have any questions, please raise an issue or contact us at [service@deepseek.com](service@deepseek.com).
+If you have any questions, please raise an issue or contact us at [service@deepseek.com](mailto:service@deepseek.com).
